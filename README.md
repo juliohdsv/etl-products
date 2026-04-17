@@ -1,131 +1,244 @@
 # ETL Products API
 
-This is an ETL (Extract, Transform, Load) API that fetches products from the [Fake Store API](https://fakestoreapi.com/) and stores them in a PostgreSQL database using Prisma. The system includes a scheduled cron job that runs every minute to automatically fetch and insert new products, as well as a manual REST API endpoint to trigger the process on demand.
+API de ETL que consome produtos da [Fake Store API](https://fakestoreapi.com/), transforma os dados e salva em um banco PostgreSQL usando Prisma.
 
-## Features
+O projeto oferece:
 
-- **Automated ETL**: Cron job fetches products every minute.
-- **Manual Trigger**: REST API endpoint to run ETL manually.
-- **Duplicate Handling**: Skips inserting products that already exist based on `idFakeStoreProducts`.
-- **Error Handling**: Global error handler with proper HTTP status codes.
-- **Swagger Documentation**: API docs available at `/docs` when running.
-- **Clean Architecture**: Organized with use cases, gateways, and controllers.
+- importação manual via API;
+- importação automática via cron job a cada minuto;
+- prevenção de duplicatas com base em `idFakeStoreProducts`;
+- listagem de produtos armazenados;
+- filtro de produtos por intervalo de datas;
+- documentação Swagger.
 
-## Getting Started
+## Funcionalidades
 
-### Prerequisites
+- `POST /api/products`: dispara a importação de produtos da Fake Store API.
+- `GET /api/products`: retorna todos os produtos salvos no banco.
+- `GET /api/products/by-date`: filtra produtos por intervalo de datas de criação.
+- Cron job executa o mesmo processo de importação a cada minuto.
+- Uso de `createMany(skipDuplicates: true)` para evitar registros duplicados.
 
-- Node.js (v18+)
+## Estrutura do projeto
+
+- `src/server.ts` — ponto de entrada e configuração do servidor.
+- `src/infra/config/swagger.ts` — configuração do Swagger e Swagger UI.
+- `src/infra/config/cors.ts` — configuração de CORS.
+- `src/infra/config/error-handler-global.ts` — tratamento global de erros.
+- `src/infra/http/routes/products-routes.ts` — definição das rotas.
+- `src/infra/http/controlers/create-product-controller.ts` — controller para importação manual.
+- `src/infra/http/controlers/get-products-controller.ts` — controller para listar produtos.
+- `src/infra/http/controlers/find-by-date-products-controller.ts` — controller para filtro por datas.
+- `src/app/use-cases/create-products-usecase.ts` — lógica de ETL.
+- `src/app/use-cases/get-products-usecase.ts` — busca todos os produtos.
+- `src/app/use-cases/find-by-date-products-usecase.ts` — busca produtos por período.
+- `src/infra/gateways/products-gateway.ts` — gateway de integração com Fake Store API.
+- `src/infra/jobs/products-cron.ts` — cron job para execução periódica.
+- `src/infra/database/prisma-client.ts` — cliente Prisma.
+- `src/lib/fakes-store-api.ts` — cliente Axios para Fake Store API.
+
+## Requisitos
+
+- Node.js 18+
 - pnpm
-- PostgreSQL database
+- PostgreSQL
 
-### Installation
+## Instalação
 
-1. Clone the repository:
+```bash
+git clone <repo-url>
+cd etl-products
+pnpm install
+```
 
-   ```bash
-   git clone <repo-url>
-   cd etl-products
-   ```
+## Variáveis de ambiente
 
-2. Install dependencies:
+Copie o arquivo de exemplo:
 
-   ```bash
-   pnpm install
-   ```
+```bash
+cp .env.example .env
+```
 
-3. Set up environment variables:
-   - Copy `.env.example` to `.env` (if exists) or check `src/env.ts` for required variables.
-   - Ensure `DATABASE_URL` points to your PostgreSQL instance.
+Exemplo de `.env`:
 
-4. Run database migrations:
+```env
+NODE_PORT=4000
+NODE_ENV=development
+DATABASE_URL="postgresql://docker:docker@localhost:5432/products?schema=public"
+```
 
-   ```bash
-   npx prisma migrate dev
-   ```
+## Banco de dados
 
-5. Start the development server:
-   ```bash
-   pnpm dev
-   ```
+Execute as migrações:
 
-The server will run on `http://localhost:3000` (or as configured in env).
+```bash
+npx prisma migrate dev
+```
 
-### API Documentation
+## Executando o projeto
 
-Access Swagger UI at `http://localhost:3000/docs` for interactive API docs.
+```bash
+pnpm dev
+```
 
-#### POST /api/products
+O servidor é iniciado na porta configurada em `NODE_PORT` (padrão: `4000`).
 
-Triggers the ETL process to fetch products from Fake Store API and insert them into the database.
+## Documentação da API
 
-**Request:**
+A documentação Swagger está disponível em:
 
-- **Method:** POST
-- **URL:** `/api/products`
-- **Headers:** None required
-- **Body:** None
+```text
+http://localhost:4000/api/docs
+```
 
-**Response:**
+A especificação OpenAPI JSON fica em:
 
-- **201 Created** (Success)
-  ```json
-  {
-    "success": true,
-    "message": "Products saved successfully",
-    "data": {
-      "total": 20,
-      "inserted": 15,
-      "duplicates": 5
-    },
-    "timestamp": "2026-04-17T12:00:00.000Z"
-  }
-  ```
-- **400 Bad Request** (Validation error)
-- **502 Bad Gateway** (External API failure)
+```text
+http://localhost:4000/documentation/json
+```
 
-**Description:**
+## Endpoints da API
 
-- Fetches all products from Fake Store API.
-- Maps the data to match the Product model.
-- Inserts into the database using `createMany` with `skipDuplicates: true`.
-- Returns statistics on total fetched, inserted, and duplicates.
+### `POST /api/products`
 
-## Architecture
+Dispara a importação de produtos da Fake Store API e salva os dados no banco.
 
-The project follows Clean Architecture principles, separating concerns into layers:
+- **Método**: `POST`
+- **URL**: `/api/products`
+- **Body**: nenhum
+- **Headers**: nenhum
 
-- **Infra**: HTTP, database, external gateways, jobs.
-- **App**: Use cases, factories, errors.
-- **Lib**: External API clients.
+#### Exemplo de resposta de sucesso (201)
 
-### ETL Flow Diagram
+```json
+{
+  "success": true,
+  "message": "Products saved successfully",
+  "data": {
+    "total": 20,
+    "inserted": 15,
+    "duplicates": 5
+  },
+  "timestamp": "2026-04-17T12:00:00.000Z"
+}
+```
+
+#### Erros possíveis
+
+- `400` — erro de validação ou requisição inválida
+- `502` — falha no gateway externo ou na Fake Store API
+
+### `GET /api/products`
+
+Retorna todos os produtos salvos no banco.
+
+- **Método**: `GET`
+- **URL**: `/api/products`
+
+#### Exemplo de resposta de sucesso (200)
+
+```json
+{
+  "success": true,
+  "message": "Products retrieved successfully",
+  "data": [
+    {
+      "id": "uuid",
+      "idFakeStoreProducts": 1,
+      "title": "Product 1",
+      "price": 100,
+      "image": "https://...",
+      "createdAt": "2026-04-17T12:00:00.000Z",
+      "updatedAt": "2026-04-17T12:00:00.000Z"
+    }
+  ],
+  "timestamp": "2026-04-17T12:00:00.000Z"
+}
+```
+
+### `GET /api/products/by-date?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Retorna produtos cadastrados entre as datas `from` e `to`, inclusive.
+
+- **Método**: `GET`
+- **URL**: `/api/products/by-date`
+- **Query params**:
+  - `from` — data inicial no formato `YYYY-MM-DD`
+  - `to` — data final no formato `YYYY-MM-DD`
+
+#### Exemplo
+
+```text
+GET /api/products/by-date?from=2026-04-17&to=2026-04-18
+```
+
+#### Exemplo de resposta de sucesso (200)
+
+```json
+{
+  "success": true,
+  "message": "Products retrieved successfully",
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "idFakeStoreProducts": 1,
+        "title": "Product 1",
+        "price": 100,
+        "image": "https://...",
+        "createdAt": "2026-04-17T12:00:00.000Z",
+        "updatedAt": "2026-04-17T12:00:00.000Z"
+      }
+    ],
+    "total": 1
+  },
+  "timestamp": "2026-04-17T12:00:00.000Z"
+}
+```
+
+## Comportamento do ETL
+
+- `CreateProductController.handle()` aciona o caso de uso `CreateProductsUseCase`.
+- `ProductsGateway` busca produtos na Fake Store API.
+- Os dados são mapeados para o formato do banco.
+- `Prisma createMany({ skipDuplicates: true })` insere registros e evita duplicatas.
+- A resposta retorna `total`, `inserted` e `duplicates`.
+- O cron job em `src/infra/jobs/products-cron.ts` executa essa mesma sequência a cada minuto.
+
+## Fluxo do sistema
 
 ```mermaid
 graph TD
-    A[Client] -->|POST /api/products| B[CreateProductController]
-    C[Cron Job<br/>every 1 min] -->|execute| D[CreateProductsUseCase]
-    B --> D
-    D --> E[ProductsGateway]
-    E -->|GET /products| F[Fake Store API]
-    F -->|Response| E
-    E --> D
-    D --> G[Map to DTO]
-    G --> H[Prisma Client<br/>createMany]
-    H --> I[Database]
-    H --> J[Return Stats]
-    J --> B
-    J --> C
+  A[Cliente] -->|POST /api/products| B[CreateProductController]
+  B --> D[CreateProductsUseCase]
+  D --> E[ProductsGateway]
+  E -->|GET /products| F[Fake Store API]
+  F -->|200 OK| E
+  E --> G[Mape dados]
+  G --> H[Prisma createMany(skipDuplicates)]
+  H --> I[PostgreSQL Database]
+  H --> J[Retorna estatísticas]
+  J --> B
+
+  C[Cron job a cada 1 minuto] -->|executa| D
+
+  K[Cliente] -->|GET /api/products| L[GetProductsController]
+  L --> M[GetProductsUseCase]
+  M --> I
+
+  N[Cliente] -->|GET /api/products/by-date| O[FindByDateProductsController]
+  O --> P[FindByDateProductsUseCase]
+  P --> I
 ```
 
-### Database Schema
+## Esquema do banco
 
-The `Product` model in Prisma:
+Modelo Prisma `Product`:
 
 ```prisma
 model Product {
   id                  String   @id @default(uuid())
-  idFakeStoreProducts Int     @unique @map("id_fake_store_products")
+  idFakeStoreProducts Int      @unique @map("id_fake_store_products")
   title               String
   price               Float
   image               String
@@ -136,23 +249,23 @@ model Product {
 }
 ```
 
-## Technologies Used
+## Tecnologias
 
-- **Fastify**: Web framework
-- **Prisma**: ORM for PostgreSQL
-- **Zod**: Schema validation
-- **Axios**: HTTP client for external API
-- **Node-cron**: Scheduled jobs
-- **Swagger**: API documentation
+- Fastify
+- Prisma
+- Zod
+- Axios
+- node-cron
+- Swagger / Swagger UI
 
 ## Scripts
 
-- `pnpm dev`: Start development server with hot reload
-- `npx prisma migrate dev`: Run database migrations
-- `npx prisma studio`: Open Prisma Studio for database management
+- `pnpm dev` — inicia o servidor de desenvolvimento
+- `npx prisma migrate dev` — executa migrações
+- `npx prisma studio` — abre o Prisma Studio
 
-## Contributing
+## Observações
 
-1. Follow the Clean Architecture structure.
-2. Add tests for new features.
-3. Update this README for API changes.
+- Confira `DATABASE_URL` antes de rodar as migrações.
+- A importação manual é idempotente graças ao `skipDuplicates`.
+- O Swagger está configurado em `/api/docs`.
