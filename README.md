@@ -5,19 +5,18 @@ API de ETL que consome produtos da [Fake Store API](https://fakestoreapi.com/), 
 O projeto oferece:
 
 - importação manual via API;
-- importação automática via cron job a cada minuto;
-- prevenção de duplicatas com base em `idFakeStoreProducts`;
-- listagem de produtos armazenados;
-- filtro de produtos por intervalo de datas;
-- documentação Swagger.
+- importação automática por cron job a cada minuto;
+- prevenção de duplicatas usando `idFakeStoreProducts`;
+- listagem e filtro por data dos produtos armazenados;
+- documentação Swagger disponível.
 
 ## Funcionalidades
 
-- `POST /api/products`: dispara a importação de produtos da Fake Store API.
-- `GET /api/products`: retorna todos os produtos salvos no banco.
-- `GET /api/products/by-date`: filtra produtos por intervalo de datas de criação.
-- Cron job executa o mesmo processo de importação a cada minuto.
-- Uso de `createMany(skipDuplicates: true)` para evitar registros duplicados.
+- `POST /api/products`: importa produtos da Fake Store API e salva no banco.
+- `GET /api/products`: lista todos os produtos armazenados.
+- `GET /api/products/by-date`: filtra produtos por data de criação.
+- `src/infra/jobs/products-cron.ts`: cron job que executa a importação a cada minuto.
+- `Prisma createMany({ skipDuplicates: true })`: garante idempotência e evita duplicações.
 
 ## Estrutura do projeto
 
@@ -25,14 +24,14 @@ O projeto oferece:
 - `src/infra/config/swagger.ts` — configuração do Swagger e Swagger UI.
 - `src/infra/config/cors.ts` — configuração de CORS.
 - `src/infra/config/error-handler-global.ts` — tratamento global de erros.
-- `src/infra/http/routes/products-routes.ts` — definição das rotas.
+- `src/infra/http/routes/products-routes.ts` — rotas do recurso de produtos.
 - `src/infra/http/controlers/create-product-controller.ts` — controller para importação manual.
-- `src/infra/http/controlers/get-products-controller.ts` — controller para listar produtos.
-- `src/infra/http/controlers/find-by-date-products-controller.ts` — controller para filtro por datas.
-- `src/app/use-cases/create-products-usecase.ts` — lógica de ETL.
-- `src/app/use-cases/get-products-usecase.ts` — busca todos os produtos.
+- `src/infra/http/controlers/get-products-controller.ts` — controller para listagem de produtos.
+- `src/infra/http/controlers/find-by-date-products-controller.ts` — controller para filtro por intervalo de datas.
+- `src/app/use-cases/create-products-usecase.ts` — lógica de importação e persistência.
+- `src/app/use-cases/get-products-usecase.ts` — busca todos os produtos do banco.
 - `src/app/use-cases/find-by-date-products-usecase.ts` — busca produtos por período.
-- `src/infra/gateways/products-gateway.ts` — gateway de integração com Fake Store API.
+- `src/infra/gateways/products-gateway.ts` — gateway para Fake Store API.
 - `src/infra/jobs/products-cron.ts` — cron job para execução periódica.
 - `src/infra/database/prisma-client.ts` — cliente Prisma.
 - `src/lib/fakes-store-api.ts` — cliente Axios para Fake Store API.
@@ -130,7 +129,7 @@ Dispara a importação de produtos da Fake Store API e salva os dados no banco.
 
 ### `GET /api/products`
 
-Retorna todos os produtos salvos no banco.
+Retorna todos os produtos armazenados no banco.
 
 - **Método**: `GET`
 - **URL**: `/api/products`
@@ -158,7 +157,7 @@ Retorna todos os produtos salvos no banco.
 
 ### `GET /api/products/by-date?from=YYYY-MM-DD&to=YYYY-MM-DD`
 
-Retorna produtos cadastrados entre as datas `from` e `to`, inclusive.
+Retorna produtos cadastrados entre as datas `from` e `to`.
 
 - **Método**: `GET`
 - **URL**: `/api/products/by-date`
@@ -198,37 +197,36 @@ GET /api/products/by-date?from=2026-04-17&to=2026-04-18
 
 ## Comportamento do ETL
 
-- `CreateProductController.handle()` aciona o caso de uso `CreateProductsUseCase`.
+- `CreateProductController.handle()` aciona `CreateProductsUseCase`.
 - `ProductsGateway` busca produtos na Fake Store API.
-- Os dados são mapeados para o formato do banco.
-- `Prisma createMany({ skipDuplicates: true })` insere registros e evita duplicatas.
+- Os dados são transformados e mapeados para o modelo de banco.
+- `Prisma createMany({ skipDuplicates: true })` insere apenas novos produtos.
 - A resposta retorna `total`, `inserted` e `duplicates`.
-- O cron job em `src/infra/jobs/products-cron.ts` executa essa mesma sequência a cada minuto.
+- O cron job em `src/infra/jobs/products-cron.ts` executa esse processo a cada minuto.
 
 ## Fluxo do sistema
 
 ```mermaid
-graph TD
-  A[Cliente] -->|POST /api/products| B[CreateProductController]
-  B --> D[CreateProductsUseCase]
-  D --> E[ProductsGateway]
-  E -->|GET /products| F[Fake Store API]
-  F -->|200 OK| E
-  E --> G[Mape dados]
-  G --> H[Prisma createMany(skipDuplicates)]
-  H --> I[PostgreSQL Database]
-  H --> J[Retorna estatísticas]
-  J --> B
+graph LR
+  Client[Cliente] -->|POST /api/products| CreateController[CreateProductController]
+  CreateController --> CreateUseCase[CreateProductsUseCase]
+  CreateUseCase --> ProductsGateway[ProductsGateway]
+  ProductsGateway -->|GET /products| FakeStore[Fake Store API]
+  FakeStore -->|200 OK| ProductsGateway
+  ProductsGateway --> MapData[Mapeia dados para DTO]
+  MapData --> Prisma[Prisma createMany(skipDuplicates)]
+  Prisma --> Database[PostgreSQL Database]
+  Prisma -->|Resultados| CreateController
 
-  C[Cron job a cada 1 minuto] -->|executa| D
+  Cron[Cron job (1 minuto)] -->|executa| CreateUseCase
 
-  K[Cliente] -->|GET /api/products| L[GetProductsController]
-  L --> M[GetProductsUseCase]
-  M --> I
+  Client -->|GET /api/products| GetController[GetProductsController]
+  GetController --> GetUseCase[GetProductsUseCase]
+  GetUseCase --> Database
 
-  N[Cliente] -->|GET /api/products/by-date| O[FindByDateProductsController]
-  O --> P[FindByDateProductsUseCase]
-  P --> I
+  Client -->|GET /api/products/by-date| FindController[FindByDateProductsController]
+  FindController --> FindUseCase[FindByDateProductsUseCase]
+  FindUseCase --> Database
 ```
 
 ## Esquema do banco
